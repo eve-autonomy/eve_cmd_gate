@@ -69,7 +69,8 @@ private:
   rclcpp::Client<tier4_external_api_msgs::srv::SetOperator>::SharedPtr cli_set_operator_;
 
   // Class Variables
-  std::shared_mutex mtx_;
+  std::shared_mutex engage_mtx_;
+  std::shared_mutex lock_state_mtx_;
 
   OperationModeState operation_state_;
   uint16_t current_delivery_reservation_state_;
@@ -92,6 +93,7 @@ private:
   void setRequestStartAPI(
     const std_srvs::srv::Trigger::Request::SharedPtr request,
     const std_srvs::srv::Trigger::Response::SharedPtr response);
+  bool isRequestReset(void);
   void onOperationModeStatus(const OperationModeState::SharedPtr msg);
   void onRoutingStatus(const RouteState::SharedPtr msg);
   void onRoutingRoute(const Route::SharedPtr msg);
