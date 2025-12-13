@@ -35,6 +35,7 @@
   <depend>tier4_external_api_msgs</depend>
   <depend>rclcpp_components</depend>
   <depend>autoware_adapi_v1_msgs</depend>
+  <depend>autoware_system_msgs</depend>
   <depend>std_srvs</depend>
 
   <export>

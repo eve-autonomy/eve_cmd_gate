@@ -29,6 +29,7 @@
 #include "tier4_external_api_msgs/srv/engage.hpp"
 #include "tier4_external_api_msgs/srv/set_operator.hpp"
 #include "eve_cmd_gate_msgs/msg/engage_request_state.hpp"
+#include "autoware_system_msgs/msg/hazard_status_stamped.hpp"
 
 namespace eve_cmd_gate
 {
@@ -45,6 +46,7 @@ private:
   using Route = autoware_adapi_v1_msgs::msg::Route;
   using StateLock = autoware_state_machine_msgs::msg::StateLock;
   using StateSoundDone = autoware_state_machine_msgs::msg::StateSoundDone;
+  using HazardStatusStamped = autoware_system_msgs::msg::HazardStatusStamped;
 
   // Callback group
   rclcpp::CallbackGroup::SharedPtr callback_group_service_;
@@ -56,6 +58,7 @@ private:
   rclcpp::Subscription<Route>::SharedPtr sub_routing_route_;
   rclcpp::Subscription<StateLock>::SharedPtr sub_lock_state_;
   rclcpp::Subscription<StateSoundDone>::SharedPtr sub_engage_sound_done_;
+  rclcpp::Subscription<HazardStatusStamped>::SharedPtr sub_emergency_holding_;
 
   // Publisher
   rclcpp::Publisher<eve_cmd_gate_msgs::msg::EngageRequestState>::SharedPtr pub_state_;
@@ -76,6 +79,8 @@ private:
   uint16_t current_delivery_reservation_state_;
   uint16_t on_sound_done_state_;
   bool on_sound_playing_flg_;
+  bool is_emergency_holding_;
+
   typedef struct tuple
   {
     bool sound_enable;
@@ -93,12 +98,14 @@ private:
   void setRequestStartAPI(
     const std_srvs::srv::Trigger::Request::SharedPtr request,
     const std_srvs::srv::Trigger::Response::SharedPtr response);
+  bool isEmergencyHolding(void);
   bool isRequestReset(void);
   void onOperationModeStatus(const OperationModeState::SharedPtr msg);
   void onRoutingStatus(const RouteState::SharedPtr msg);
   void onRoutingRoute(const Route::SharedPtr msg);
   void onLockState(const StateLock::SharedPtr msg);
   void onStateSoundDone(const StateSoundDone::SharedPtr msg);
+  void onHazardStatusStamped(const HazardStatusStamped::SharedPtr msg);
 
   // Class Method
   void setEngageProcess(bool request, bool accept);

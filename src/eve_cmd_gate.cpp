@@ -70,6 +70,11 @@ EveCmdGate::EveCmdGate(
     std::bind(&EveCmdGate::onStateSoundDone, this, std::placeholders::_1),
     subscribe_option);
 
+  sub_emergency_holding_ = this->create_subscription<HazardStatusStamped>(
+  "/system/emergency/hazard_status", rclcpp::QoS{1}.transient_local(),
+  std::bind(&EveCmdGate::onHazardStatusStamped, this, std::placeholders::_1),
+  subscribe_option);
+
   // Publisher
   pub_state_ = this->create_publisher<eve_cmd_gate_msgs::msg::EngageRequestState>(
   "/eve_cmd_gate/engage_request_state", rclcpp::QoS{1}.transient_local());
@@ -115,6 +120,7 @@ EveCmdGate::EveCmdGate(
   is_engage_accepted_ = false;
   routing_state_ = RouteState::UNKNOWN;
   routing_route_.data.clear();
+  is_emergency_holding_ = false;
 }
 
 void EveCmdGate::execEngageProcess(
@@ -295,12 +301,17 @@ std::pair<bool, bool> EveCmdGate::getEngageProcess()
   return value;
 }
 
+bool EveCmdGate::isEmergencyHolding(void)
+{
+  return is_emergency_holding_;
+}
+
 bool EveCmdGate::isRequestReset(void)
 {
   bool is_request_reset = false;
   auto [is_request, is_accept] = getEngageProcess();
   if (is_request) {
-    if ((!isWaitingEngage() && !isDriving())) {
+    if ((!isWaitingEngage() && !isDriving()) || isEmergencyHolding()) {
       is_request_reset = true;
     }
   }
@@ -353,6 +364,16 @@ void EveCmdGate::onStateSoundDone(
   if (sound_param_.count(on_sound_done_state_) != 0) {
     on_sound_playing_flg_ = false;
     setEngageProcess(false, true);
+  }
+}
+
+void EveCmdGate::onHazardStatusStamped(
+  const HazardStatusStamped::SharedPtr msg)
+{
+  is_emergency_holding_ = msg->status.emergency_holding;
+  auto is_engage_requesting_reset = isRequestReset();
+  if (is_engage_requesting_reset) {
+    setEngageProcess(false, false);
   }
 }
 
