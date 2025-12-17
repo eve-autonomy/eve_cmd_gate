@@ -1,0 +1,15 @@
+@startuml
+
+usecase "/engage_button_manager"
+usecase "/engage_srv_converter"
+usecase "/eve_cmd_gate" #LightCoral
+rectangle "autoware" {
+  usecase "/control/vehicle_cmd_gate"
+}
+
+(/engage_button_manager) --> (/engage_srv_converter) : /engage_button_manager/output/engage_button
+(/engage_srv_converter) --> (/eve_cmd_gate) : /api/external/set/engage
+(/engage_srv_converter) <.. (/eve_cmd_gate)
+(/eve_cmd_gate) --> (/control/vehicle_cmd_gate) : /api/autoware/set/engage
+(/eve_cmd_gate) <.. (/control/vehicle_cmd_gate)
+@enduml
