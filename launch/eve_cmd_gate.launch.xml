@@ -15,7 +15,7 @@
 -->
 
 <launch>
-  <node pkg="eve_cmd_gate_node" exec="eve_cmd_gate_node" name="eve_cmd_gate" output="screen">
+  <node pkg="eve_cmd_gate" exec="eve_cmd_gate_node" name="eve_cmd_gate" output="screen">
     <param name="use_sim_time" value="$(env AW_ROS2_USE_SIM_TIME false)" />
   </node>
 </launch>
