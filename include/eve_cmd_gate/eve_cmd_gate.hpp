@@ -22,12 +22,12 @@
 #include "autoware_adapi_v1_msgs/msg/operation_mode_state.hpp"
 #include "autoware_adapi_v1_msgs/msg/route_state.hpp"
 #include "autoware_adapi_v1_msgs/msg/route.hpp"
+#include "autoware_adapi_v1_msgs/srv/accept_start.hpp"
+#include "autoware_adapi_v1_msgs/msg/motion_state.hpp"
 #include "autoware_state_machine_msgs/msg/state_lock.hpp"
 #include "autoware_state_machine_msgs/msg/state_sound_done.hpp"
 #include "autoware_state_machine_msgs/msg/state_machine.hpp"
-#include "std_srvs/srv/trigger.hpp"
 #include "tier4_external_api_msgs/srv/engage.hpp"
-#include "tier4_external_api_msgs/srv/set_operator.hpp"
 #include "eve_cmd_gate_msgs/msg/engage_request_state.hpp"
 #include "autoware_system_msgs/msg/hazard_status_stamped.hpp"
 
@@ -47,6 +47,7 @@ private:
   using StateLock = autoware_state_machine_msgs::msg::StateLock;
   using StateSoundDone = autoware_state_machine_msgs::msg::StateSoundDone;
   using HazardStatusStamped = autoware_system_msgs::msg::HazardStatusStamped;
+  using MotionState = autoware_adapi_v1_msgs::msg::MotionState;
 
   // Callback group
   rclcpp::CallbackGroup::SharedPtr callback_group_service_;
@@ -59,20 +60,19 @@ private:
   rclcpp::Subscription<StateLock>::SharedPtr sub_lock_state_;
   rclcpp::Subscription<StateSoundDone>::SharedPtr sub_engage_sound_done_;
   rclcpp::Subscription<HazardStatusStamped>::SharedPtr sub_emergency_holding_;
+  rclcpp::Subscription<MotionState>::SharedPtr sub_motion_state_;
 
   // Publisher
   rclcpp::Publisher<eve_cmd_gate_msgs::msg::EngageRequestState>::SharedPtr pub_state_;
 
   // Service
   rclcpp::Service<tier4_external_api_msgs::srv::Engage>::SharedPtr srv_engage_;
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_set_request_start_api_;
 
   // Client
   rclcpp::Client<tier4_external_api_msgs::srv::Engage>::SharedPtr cli_engage_;
-  rclcpp::Client<tier4_external_api_msgs::srv::SetOperator>::SharedPtr cli_set_operator_;
+  rclcpp::Client<autoware_adapi_v1_msgs::srv::AcceptStart>::SharedPtr cli_accept_start_;
 
   // Class Variables
-  std::shared_mutex engage_mtx_;
   std::shared_mutex lock_state_mtx_;
 
   OperationModeState operation_state_;
@@ -90,14 +90,13 @@ private:
   bool is_engage_accepted_;
   uint16_t routing_state_;
   Route routing_route_;
+  uint16_t motion_state_;
+  bool sound_done_for_restart_;
 
   // Callback
   void execEngageProcess(
     const ExternalEngage::Request::SharedPtr request,
     const ExternalEngage::Response::SharedPtr response);
-  void setRequestStartAPI(
-    const std_srvs::srv::Trigger::Request::SharedPtr request,
-    const std_srvs::srv::Trigger::Response::SharedPtr response);
   bool isEmergencyHolding(void);
   bool isRequestReset(void);
   void onOperationModeStatus(const OperationModeState::SharedPtr msg);
@@ -106,13 +105,14 @@ private:
   void onLockState(const StateLock::SharedPtr msg);
   void onStateSoundDone(const StateSoundDone::SharedPtr msg);
   void onHazardStatusStamped(const HazardStatusStamped::SharedPtr msg);
+  void onMotionState(const MotionState::SharedPtr msg);
+  void tryCallAcceptStart();
 
   // Class Method
   void setEngageProcess(bool request, bool accept);
   std::pair<bool, bool> getEngageProcess();
   bool isWaitingEngage();
   bool isDriving();
-  bool waitingForEngageAccept();
 };
 
 }  // namespace engage_srv_converter

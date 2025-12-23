@@ -28,7 +28,6 @@ EveCmdGate::EveCmdGate(
   using namespace std::placeholders;
 
   // Callback group
-  // This type of callback group only allows one callback to be executed at a time
   callback_group_service_ =
     this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   callback_group_subscription_ =
@@ -41,39 +40,43 @@ EveCmdGate::EveCmdGate(
     "/api/operation_mode/state",
     rclcpp::QoS{1}.transient_local(),
     std::bind(&EveCmdGate::onOperationModeStatus, this, _1),
-    subscribe_option
-  );
+    subscribe_option);
 
   sub_routing_state_ = this->create_subscription<RouteState>(
     "/api/routing/state",
     rclcpp::QoS{1}.transient_local(),
     std::bind(&EveCmdGate::onRoutingStatus, this, _1),
-    subscribe_option
-  );
+    subscribe_option);
 
   sub_routing_route_ = this->create_subscription<Route>(
     "/api/routing/route",
     rclcpp::QoS{1}.transient_local(),
     std::bind(&EveCmdGate::onRoutingRoute, this, _1),
-    subscribe_option
-  );
+    subscribe_option);
 
   sub_lock_state_ = this->create_subscription<StateLock>(
     "/go_interface/lock_state",
     rclcpp::QoS{1}.transient_local(),
     std::bind(&EveCmdGate::onLockState, this, _1),
-    subscribe_option
-  );
+    subscribe_option);
 
   sub_engage_sound_done_ = this->create_subscription<StateSoundDone>(
-    "/autoware_state_machine/state_sound_done", rclcpp::QoS{1}.transient_local(),
-    std::bind(&EveCmdGate::onStateSoundDone, this, std::placeholders::_1),
+    "/autoware_state_machine/state_sound_done",
+    rclcpp::QoS{3}.transient_local(),
+    std::bind(&EveCmdGate::onStateSoundDone, this, _1),
     subscribe_option);
 
   sub_emergency_holding_ = this->create_subscription<HazardStatusStamped>(
-  "/system/emergency/hazard_status", rclcpp::QoS{1}.transient_local(),
-  std::bind(&EveCmdGate::onHazardStatusStamped, this, std::placeholders::_1),
-  subscribe_option);
+    "/system/emergency/hazard_status",
+    rclcpp::QoS{1}.transient_local(),
+    std::bind(&EveCmdGate::onHazardStatusStamped, this, _1),
+    subscribe_option);
+
+  sub_motion_state_ = this->create_subscription<MotionState>(
+    "/api/motion/state",
+    rclcpp::QoS{1}.transient_local(),
+    std::bind(&EveCmdGate::onMotionState, this, _1),
+    subscribe_option);
 
   // Publisher
   pub_state_ = this->create_publisher<eve_cmd_gate_msgs::msg::EngageRequestState>(
@@ -86,19 +89,13 @@ EveCmdGate::EveCmdGate(
       &EveCmdGate::execEngageProcess, this,
       std::placeholders::_1, std::placeholders::_2),
     rmw_qos_profile_services_default, callback_group_service_);
-  srv_set_request_start_api_ = this->create_service<std_srvs::srv::Trigger>(
-    "/api/autoware/set/start_request",
-    std::bind(
-      &EveCmdGate::setRequestStartAPI, this,
-      std::placeholders::_1, std::placeholders::_2),
-    rmw_qos_profile_services_default, callback_group_service_);
 
   // Client
   cli_engage_ = this->create_client<tier4_external_api_msgs::srv::Engage>(
     "/api/autoware/set/engage",
     rmw_qos_profile_services_default);
-  cli_set_operator_ = this->create_client<tier4_external_api_msgs::srv::SetOperator>(
-    "/api/autoware/set/operator",
+  cli_accept_start_ = this->create_client<autoware_adapi_v1_msgs::srv::AcceptStart>(
+    "/api/motion/accept_start",
     rmw_qos_profile_services_default);
 
   // Variable
@@ -121,6 +118,8 @@ EveCmdGate::EveCmdGate(
   routing_state_ = RouteState::UNKNOWN;
   routing_route_.data.clear();
   is_emergency_holding_ = false;
+  motion_state_ = MotionState::UNKNOWN;
+  sound_done_for_restart_ = false;
 }
 
 void EveCmdGate::execEngageProcess(
@@ -171,117 +170,31 @@ void EveCmdGate::execEngageProcess(
     return;
   }
 
-  // Provisional support
-  // Set operator to AUTONOMOUS and set "/vehicle/engage" to True internally.
-  auto operator_req =
-    std::make_shared<tier4_external_api_msgs::srv::SetOperator::Request>();
-  operator_req->mode.mode = tier4_external_api_msgs::msg::Operator::AUTONOMOUS;
-  auto operator_future = cli_set_operator_->async_send_request(operator_req);
-  if (!tier4_api_utils::is_success(operator_future.get()->status)) {
-    response->status = tier4_api_utils::response_error("Operator set failed.");
-    return;
-  }
-
-  bool is_success = waitingForEngageAccept();
-  if (!is_success) {
-    response->status = tier4_api_utils::response_error("It is not ready to engage.");
-    return;
-  }
-
-  auto engage_future = cli_engage_->async_send_request(request);
-  response->status = engage_future.get()->status;
-}
-
-void EveCmdGate::setRequestStartAPI(
-  const std_srvs::srv::Trigger::Request::SharedPtr request,
-  const std_srvs::srv::Trigger::Response::SharedPtr response
-)
-{
-  /* The voice guidance at the time of engage is done in execEngageProcess function,
-      so there is no need to do it there.
-    Treats the state as ready to engage and returns true. */
-  if (isWaitingEngage() &&
-    (on_sound_done_state_ ==
-    autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_ENGAGE) &&
-    (on_sound_playing_flg_ == false))
-  {
-    response->success = true;
-    return;
-  }
-
-  if (operation_state_.is_autoware_control_enabled == false) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(),
-      *this->get_clock(), DEBUG_THROTTLE_TIME,
-      "[eve_cmd_gate] Start API Is Not Ready ");
-    response->success = false;
-    return;
-  }
-
-  const auto is_running_state = isDriving();
-
-  if (!is_running_state) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(),
-      *this->get_clock(), DEBUG_THROTTLE_TIME,
-      "[eve_cmd_gate] Start API Is Not Ready ");
-    response->success = false;
-    return;
-  }
-
-  const auto is_exception_state = (on_sound_playing_flg_ == true);
-
-  // Remove exceptions that fall within the scope of RunningState.
-  if (is_exception_state) {
-    RCLCPP_WARN_THROTTLE(
-      this->get_logger(),
-      *this->get_clock(), DEBUG_THROTTLE_TIME,
-      "[eve_cmd_gate] Start API Is Not Ready ");
-    response->success = false;
-    return;
-  }
-
-  bool is_success = waitingForEngageAccept();
-  response->success = is_success;
-}
-
-bool EveCmdGate::waitingForEngageAccept()
-{
+  // Publish engage request state
   setEngageProcess(true, false);
-  on_sound_playing_flg_ = true;
 
-  rclcpp::Rate rate(10);
-  while (rclcpp::ok()) {
-    auto [is_request, is_accept] = getEngageProcess();
-    if (is_accept) {
-      break;
-    }
-    if (!is_request) {
-      RCLCPP_ERROR_THROTTLE(
-        this->get_logger(),
-        *this->get_clock(), DEBUG_THROTTLE_TIME,
-        "[eve_cmd_gate] Engage Request Interruption ");
-      return false;
-    }
-    rate.sleep();
-  }
-  setEngageProcess(false, false);
-  return true;
+  // Non-blocking async request
+  cli_engage_->async_send_request(request,
+    [this](rclcpp::Client<tier4_external_api_msgs::srv::Engage>::SharedFuture future) {
+      auto result = future.get();
+      if (!tier4_api_utils::is_success(result->status)) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "[eve_cmd_gate] Engage request failed: %s",
+          result->status.message.c_str());
+      }
+      // Reset engage request state after engage completed
+      setEngageProcess(true, false);
+    });
+
+  response->status = tier4_api_utils::response_success();
 }
 
 void EveCmdGate::setEngageProcess(bool request, bool accept)
 {
-  /* In multi-threaded system, there is a possibility of simultaneous accesses from different threads,
-      so exclusion control is performed.
-     Set request to "true" when we want the audio to play when vehicle departs and restarts.
-     Set accept to "true" when the audio playback is complete.
-     If you want to suspend waiting for playback to complete for some reason,
-      set both values to "false". */
-  {
-    std::lock_guard<std::shared_mutex> lock(engage_mtx_);
-    is_engage_requesting_ = request;
-    is_engage_accepted_ = accept;
-  }
+  is_engage_requesting_ = request;
+  is_engage_accepted_ = accept;
+
   eve_cmd_gate_msgs::msg::EngageRequestState pub;
   pub.is_engage_requesting = is_engage_requesting_;
   pub.is_engage_accepted = is_engage_accepted_;
@@ -290,15 +203,7 @@ void EveCmdGate::setEngageProcess(bool request, bool accept)
 
 std::pair<bool, bool> EveCmdGate::getEngageProcess()
 {
-  /* In multi-threaded system, there is a possibility of simultaneous accesses from different threads,
-      so exclusion control is performed.
-     Check both values to determine if the playback is played, interrupted, or completed. */
-  std::pair<bool, bool> value;
-  {
-    std::shared_lock<std::shared_mutex> lock(engage_mtx_);
-    value = std::make_pair(is_engage_requesting_, is_engage_accepted_);
-  }
-  return value;
+  return std::make_pair(is_engage_requesting_, is_engage_accepted_);
 }
 
 bool EveCmdGate::isEmergencyHolding(void)
@@ -324,30 +229,18 @@ void EveCmdGate::onOperationModeStatus(
   operation_state_.mode = msg->mode;
   operation_state_.is_autoware_control_enabled = msg->is_autoware_control_enabled;
   operation_state_.is_in_transition = msg->is_in_transition;
-  auto is_engage_requesting_reset = isRequestReset();
-  if (is_engage_requesting_reset) {
-    setEngageProcess(false, false);
-  }
 }
 
 void EveCmdGate::onRoutingStatus(
   const RouteState::SharedPtr msg)
 {
   routing_state_ = msg->state;
-  auto is_engage_requesting_reset = isRequestReset();
-  if (is_engage_requesting_reset) {
-    setEngageProcess(false, false);
-  }
 }
 
 void EveCmdGate::onRoutingRoute(
   const Route::SharedPtr msg)
 {
   routing_route_.data = msg->data;
-  auto is_engage_requesting_reset = isRequestReset();
-  if (is_engage_requesting_reset) {
-    setEngageProcess(false, false);
-  }
 }
 
 void EveCmdGate::onLockState(
@@ -361,9 +254,66 @@ void EveCmdGate::onStateSoundDone(
   const StateSoundDone::SharedPtr msg)
 {
   on_sound_done_state_ = msg->state;
-  if (sound_param_.count(on_sound_done_state_) != 0) {
-    on_sound_playing_flg_ = false;
-    setEngageProcess(false, true);
+  RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] onStateSoundDone: %d", on_sound_done_state_);
+
+  // Set flag for STATE_INFORM_RESTART (450) or STATE_INFORM_ENGAGE (310)
+  if (on_sound_done_state_ ==
+    autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_RESTART|
+    autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_ENGAGE)
+  {
+    sound_done_for_restart_ = true;
+    tryCallAcceptStart();
+  }
+}
+
+void EveCmdGate::onMotionState(
+  const MotionState::SharedPtr msg)
+{
+  motion_state_ = msg->state;
+  RCLCPP_DEBUG(this->get_logger(), "[eve_cmd_gate] onMotionState: %d", motion_state_);
+
+  // Try to call accept_start when motion state changes
+  tryCallAcceptStart();
+}
+
+void EveCmdGate::tryCallAcceptStart()
+{
+  // Call /api/motion/accept_start only when:
+  // - sound_done for restart has been received
+  // - motion state is STARTING
+  if (!sound_done_for_restart_) {
+    return;
+  }
+
+  if (motion_state_ != MotionState::STARTING) {
+    RCLCPP_DEBUG(this->get_logger(),
+      "[eve_cmd_gate] Waiting for motion state STARTING, current: %d", motion_state_);
+    return;
+  }
+
+  RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] Call /api/motion/accept_start");
+
+  if (cli_accept_start_->service_is_ready()) {
+    auto request = std::make_shared<autoware_adapi_v1_msgs::srv::AcceptStart::Request>();
+    cli_accept_start_->async_send_request(request,
+      [this](rclcpp::Client<autoware_adapi_v1_msgs::srv::AcceptStart>::SharedFuture future) {
+        auto response = future.get();
+        RCLCPP_INFO(this->get_logger(),
+          "[eve_cmd_gate] /api/motion/accept_start response: %d", response->status.success);
+        if (response->status.success) {
+          sound_done_for_restart_ = false;
+          setEngageProcess(false, true);
+        } else {
+          RCLCPP_WARN(
+            this->get_logger(),
+            "[eve_cmd_gate] /api/motion/accept_start failed: %s",
+            response->status.message.c_str());
+        }
+      });
+  } else {
+    RCLCPP_WARN(
+      this->get_logger(),
+      "[eve_cmd_gate] /api/motion/accept_start service is not ready");
   }
 }
 
