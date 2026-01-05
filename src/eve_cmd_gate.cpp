@@ -68,7 +68,7 @@ EveCmdGate::EveCmdGate(
 
   sub_emergency_holding_ = this->create_subscription<HazardStatusStamped>(
     "/system/emergency/hazard_status",
-    rclcpp::QoS{1}.transient_local(),
+    rclcpp::QoS{1},
     std::bind(&EveCmdGate::onHazardStatusStamped, this, _1),
     subscribe_option);
 
