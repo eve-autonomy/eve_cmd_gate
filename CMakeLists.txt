@@ -29,11 +29,11 @@ endif()
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
-ament_auto_add_library(engage_srv_converter SHARED
+ament_auto_add_library(eve_cmd_gate SHARED
   src/eve_cmd_gate.cpp
 )
 
-rclcpp_components_register_node(engage_srv_converter
+rclcpp_components_register_node(eve_cmd_gate
   PLUGIN "eve_cmd_gate::EveCmdGate"
   EXECUTABLE eve_cmd_gate_node)
 
