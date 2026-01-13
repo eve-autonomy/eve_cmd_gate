@@ -271,9 +271,6 @@ void EveCmdGate::onMotionState(
 {
   motion_state_ = msg->state;
   RCLCPP_DEBUG(this->get_logger(), "[eve_cmd_gate] onMotionState: %d", motion_state_);
-
-  // Try to call accept_start when motion state changes
-  tryCallAcceptStart();
 }
 
 void EveCmdGate::tryCallAcceptStart()
