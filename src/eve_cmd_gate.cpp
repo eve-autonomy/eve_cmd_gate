@@ -257,9 +257,9 @@ void EveCmdGate::onStateSoundDone(
   RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] onStateSoundDone: %d", on_sound_done_state_);
 
   // Set flag for STATE_INFORM_RESTART (450) or STATE_INFORM_ENGAGE (301)
-  if (on_sound_done_state_ ==
-    autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_RESTART||
-    autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_ENGAGE)
+  if (
+    (on_sound_done_state_ == autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_RESTART) ||
+    (on_sound_done_state_ == autoware_state_machine_msgs::msg::StateMachine::STATE_INFORM_ENGAGE))
   {
     sound_done_for_restart_ = true;
     tryCallAcceptStart();
