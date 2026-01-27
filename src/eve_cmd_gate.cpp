@@ -270,7 +270,13 @@ void EveCmdGate::onMotionState(
   const MotionState::SharedPtr msg)
 {
   motion_state_ = msg->state;
-  RCLCPP_DEBUG(this->get_logger(), "[eve_cmd_gate] onMotionState: %d", motion_state_);
+  RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] onMotionState: %d", motion_state_);
+  
+  // Try to call AcceptStart when motion state changes to STARTING
+  if (motion_state_ == MotionState::STARTING) {
+    RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] MotionState changed to STARTING, trying AcceptStart");
+    tryCallAcceptStart();
+  }
 }
 
 void EveCmdGate::tryCallAcceptStart()
@@ -278,17 +284,24 @@ void EveCmdGate::tryCallAcceptStart()
   // Call /api/motion/accept_start only when:
   // - sound_done for restart has been received
   // - motion state is STARTING
+  
+  RCLCPP_DEBUG(this->get_logger(),
+    "[eve_cmd_gate] tryCallAcceptStart: sound_done_for_restart=%d, motion_state=%d",
+    sound_done_for_restart_, motion_state_);
+  
   if (!sound_done_for_restart_) {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      "[eve_cmd_gate] AcceptStart BLOCKED: sound_done_for_restart=false");
     return;
   }
 
   if (motion_state_ != MotionState::STARTING) {
-    RCLCPP_DEBUG(this->get_logger(),
-      "[eve_cmd_gate] Waiting for motion state STARTING, current: %d", motion_state_);
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
+      "[eve_cmd_gate] AcceptStart BLOCKED: motion_state=%d (expected STARTING=2)", motion_state_);
     return;
   }
 
-  RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] Call /api/motion/accept_start");
+  RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] ✅ Calling /api/motion/accept_start");
 
   if (cli_accept_start_->service_is_ready()) {
     auto request = std::make_shared<autoware_adapi_v1_msgs::srv::AcceptStart::Request>();
@@ -298,19 +311,20 @@ void EveCmdGate::tryCallAcceptStart()
         RCLCPP_INFO(this->get_logger(),
           "[eve_cmd_gate] /api/motion/accept_start response: %d", response->status.success);
         if (response->status.success) {
+          RCLCPP_INFO(this->get_logger(), "[eve_cmd_gate] ✅ AcceptStart SUCCESS");
           sound_done_for_restart_ = false;
           setEngageProcess(false, true);
         } else {
           RCLCPP_WARN(
             this->get_logger(),
-            "[eve_cmd_gate] /api/motion/accept_start failed: %s",
+            "[eve_cmd_gate] ❌ AcceptStart FAILED: %s",
             response->status.message.c_str());
         }
       });
   } else {
     RCLCPP_WARN(
       this->get_logger(),
-      "[eve_cmd_gate] /api/motion/accept_start service is not ready");
+      "[eve_cmd_gate] ❌ AcceptStart service is not ready");
   }
 }
 
