@@ -29,7 +29,7 @@
 #include "autoware_state_machine_msgs/msg/state_machine.hpp"
 #include "tier4_external_api_msgs/srv/engage.hpp"
 #include "eve_cmd_gate_msgs/msg/engage_request_state.hpp"
-#include "autoware_system_msgs/msg/hazard_status_stamped.hpp"
+#include "tier4_external_api_msgs/msg/hazard_status_stamped.hpp"
 
 namespace eve_cmd_gate
 {
@@ -46,7 +46,7 @@ private:
   using Route = autoware_adapi_v1_msgs::msg::Route;
   using StateLock = autoware_state_machine_msgs::msg::StateLock;
   using StateSoundDone = autoware_state_machine_msgs::msg::StateSoundDone;
-  using HazardStatusStamped = autoware_system_msgs::msg::HazardStatusStamped;
+  using HazardStatusStamped = tier4_external_api_msgs::msg::HazardStatusStamped;
   using MotionState = autoware_adapi_v1_msgs::msg::MotionState;
 
   // Callback group
